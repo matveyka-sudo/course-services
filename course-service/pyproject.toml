@@ -1,0 +1,100 @@
+[project]
+name = "course-service"
+version = "0.1.0"
+description = "Course service description"
+requires-python = ">=3.14"
+dependencies = [
+    "alembic==1.20.0",
+    "fastapi==0.141.1",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
+    "pyyaml==6.0.3",
+    "sqlalchemy==2.0.54",
+    "uvicorn==0.53.0",
+]
+
+[dependency-groups]
+dev = [
+    { include-group = "test" },
+    { include-group = "lint" },
+]
+lint = [
+    "black==26.5.1",
+    "isort==9.0.1",
+    "mypy==2.3.1",
+    "pylint==4.0.8",
+    "radon==6.0.1",
+    "ruff==0.16.8",
+    "types-pyyaml>=6.0.12.20260906",
+]
+test = [
+    "aiosqlite==0.22.1",
+    "httpx2==2.13.0",
+    "locust==2.46.5",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.isort]
+profile = "black"
+line_length = 88
+src_paths = ["src", "tests"]
+known_first_party = ["src"]
+
+[tool.mypy]
+python_version = "3.14"
+files = ["src"]
+strict = true
+show_error_codes = true
+warn_unused_configs = true
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B", "I", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.black]
+line-length = 88
+target-version = ["py314"]
+
+[radon]
+cc_min = "A"
+show_complexity = true
+show_mi = true
+
+[tool.pylint.main]
+py-version = "3.14"
+jobs = 0
+ignore-paths = ["^\\.venv/", "^tests/"]
+disable = ["missing-module-docstring"]
+
+[tool.pylint.basic]
+good-names = ["i", "j", "k", "ex", "Run", "_"]
+
+[tool.pylint.format]
+max-line-length = 88
+
+[tool.pylint.reports]
+reports = false
+score = true
