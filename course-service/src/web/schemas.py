@@ -2,7 +2,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class BaseSchemaModel(BaseModel):
-    """Общие настройки для моделей ответов."""
+    """Общие настройки для моделей ответов"""
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -12,6 +12,6 @@ class BaseSchemaModel(BaseModel):
 
 
 class ServiceInfo(BaseSchemaModel):
-    """Ответ о состоянии сервиса."""
+    """Ответ о состоянии сервиса"""
 
     healthy: bool = True

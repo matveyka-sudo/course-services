@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan_service_router(_app: FastAPI) -> AsyncIterator[None]:
-    """Записать в лог запуск и остановку роутера."""
+    """Записать в лог запуск и остановку роутера"""
 
     logger.debug("Lifespan (service router) startup")
     yield
@@ -18,7 +18,7 @@ async def lifespan_service_router(_app: FastAPI) -> AsyncIterator[None]:
 
 @asynccontextmanager
 async def lifespan_app(_app: FastAPI) -> AsyncIterator[None]:
-    """Записать в лог запуск и остановку приложения."""
+    """Записать в лог запуск и остановку приложения"""
 
     logger.debug("Lifespan (app) startup")
     yield

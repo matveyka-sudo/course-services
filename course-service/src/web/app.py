@@ -9,7 +9,7 @@ from src.core.config import Settings
 def create_app(
     settings: Settings, routers: Sequence[APIRouter], **params: Any
 ) -> FastAPI:
-    """Создать приложение и добавить в него роутеры."""
+    """Создание приложения и добавление в него роутеров"""
 
     app_params = {**settings.app.model_dump(), **params}
 

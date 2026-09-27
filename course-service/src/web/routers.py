@@ -18,6 +18,6 @@ service_router = APIRouter(
     "/", description="Service info route", response_model=ServiceInfo, status_code=200
 )
 def info() -> ServiceInfo:
-    """Показать, работает ли сервис."""
+    """Показать, состояние сервиса"""
 
     return get_service_info()

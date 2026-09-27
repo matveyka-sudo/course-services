@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AppSettings(BaseSettings):
-    """Название и описание приложения."""
+    """Название и описание приложения"""
 
     title: str = "Course Service"
     description: str = "Course Service description"
@@ -16,7 +16,7 @@ class AppSettings(BaseSettings):
 
 @final
 class Settings(BaseSettings):
-    """Общие настройки сервиса."""
+    """Общие настройки сервиса"""
 
     app: AppSettings = Field(default_factory=AppSettings)
     model_config = SettingsConfigDict(
@@ -29,6 +29,6 @@ class Settings(BaseSettings):
 
 @functools.lru_cache
 def get_settings() -> Settings:
-    """Получить настройки приложения."""
+    """Получить настройки приложения"""
 
     return Settings()
