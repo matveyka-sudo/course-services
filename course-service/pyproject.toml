@@ -8,12 +8,16 @@ dependencies = [
     "fastapi==0.141.1",
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
+    "python-multipart>=0.0.32",
     "pyyaml==6.0.3",
     "sqlalchemy==2.0.54",
     "uvicorn==0.53.0",
 ]
 
 [dependency-groups]
+codegen = [
+    "fastapi-code-generator==0.8.0",
+]
 dev = [
     { include-group = "test" },
     { include-group = "lint" },
@@ -34,6 +38,13 @@ test = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
+]
+
+[tool.uv]
+# Генератор требует isort < 9; основной набор линтеров использует isort 9.
+conflicts = [
+    [{ group = "codegen" }, { group = "lint" }],
+    [{ group = "codegen" }, { group = "dev" }],
 ]
 
 [tool.pytest.ini_options]

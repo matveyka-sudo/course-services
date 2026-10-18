@@ -1,0 +1,920 @@
+openapi: 3.0.3
+info:
+  title: Course service
+  version: 1.0.0
+  description: |
+    API учебных курсов. Роли: admin (администратор), professor (преподаватель),
+    student (студент). «Все» означает все три роли авторизованных пользователей.
+
+    Администратор создаёт и удаляет курсы, назначает одного преподавателя на курс,
+    записывает студентов. Отдельные операции назначения и записи студентов
+    в этой версии контракта не проектируются.
+    Преподаватель редактирует только назначенные ему курсы, управляет их заданиями,
+    проверяет решения, выставляет финальные оценки и оставляет комментарии.
+    Студент получает только задания своих курсов, свои сдачи, оценки и отзывы.
+    Администратор не получает доступ к решениям, ревью и артефактам.
+
+    Автоматическая проверка выполняется другим сервисом. Преподаватель может
+    проверить решение самостоятельно; окончательную оценку выставляет он.
+    Статусы сдачи: SUBMITTED, PENDING, PROCESSING, COMPLETED, FAILED.
+    Не более 10 попыток на пару студент-задание, включая неудачные проверки.
+    Студент не редактирует и не удаляет попытки и оценки.
+
+    Все POST требуют Idempotency-Key. Повтор с тем же ключом и содержимым
+    возвращает ранее созданный ресурс и не расходует новую попытку.
+    Повтор ключа с другим содержимым отклоняется с 409.
+
+    Авторизация обозначена как внешний bearer-токен; выпуск и проверка токенов
+    и реализация правил доступа не входят в генерацию каркаса.
+servers:
+  - url: http://127.0.0.1:8888
+    description: Локальная разработка
+tags:
+  - name: Courses
+    description: Курсы
+  - name: Assignments
+    description: Задания курсов
+  - name: Submissions
+    description: Попытки сдачи решений
+  - name: Reviews
+    description: Финальная оценка и комментарии преподавателя
+  - name: Artifacts
+    description: Ответы на задания в виде файлов
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/courses:
+    post:
+      tags: [Courses]
+      operationId: create_course
+      summary: Создать курс
+      description: |
+        Только администратор. На курс назначается ровно один преподаватель.
+        Повтор запроса с тем же Idempotency-Key не создаёт второй курс.
+      x-roles: [admin]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Created. Курс создан.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+    get:
+      tags: [Courses]
+      operationId: list_courses
+      summary: Получить список курсов
+      description: |
+        Доступно всем трём ролям. Страница содержит не более 12 курсов.
+        Сортировка по created_at от новых к старым, при равенстве дат по id.
+        Если курсов меньше 12, возвращаются все оставшиеся.
+        Пустой список и смещение за концом списка возвращают 200 и data: [].
+        Отображение по два курса в строке выполняет клиентский интерфейс.
+      x-roles: [admin, professor, student]
+      parameters:
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/CourseLimit'
+        - $ref: '#/components/parameters/CourseSort'
+      responses:
+        '200':
+          description: Страница курсов.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Courses'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/courses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Courses]
+      operationId: get_course
+      summary: Получить курс
+      description: Доступно всем трём ролям.
+      x-roles: [admin, professor, student]
+      responses:
+        '200':
+          description: Курс найден.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/CourseNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Courses]
+      operationId: update_course
+      summary: Частично обновить курс
+      description: |
+        Только преподаватель, назначенный на этот курс.
+        Назначать или менять преподавателя через эту операцию нельзя.
+      x-roles: [professor]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Курс обновлён.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/CourseNotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Courses]
+      operationId: delete_course
+      summary: Удалить курс
+      description: Только администратор.
+      x-roles: [admin]
+      responses:
+        '204':
+          description: Курс удалён. Тело ответа отсутствует.
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/CourseNotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/assignments:
+    post:
+      tags: [Assignments]
+      operationId: create_assignment
+      summary: Создать задание
+      description: |
+        Только преподаватель, назначенный на курс задания.
+        Несуществующий курс в теле запроса считается ошибкой валидации (422).
+      x-roles: [professor]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Задание создано.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+    get:
+      tags: [Assignments]
+      operationId: list_assignments
+      summary: Получить список заданий
+      description: |
+        Доступно всем трём ролям. Студент видит только задания курсов,
+        на которые записан. Страница содержит не более 10 заданий.
+        Сортировка по created_at от первых созданных к новым,
+        при равенстве дат по id. Возвращаются все оставшиеся задания,
+        если их меньше 10. Пустой список и смещение за концом списка
+        возвращают 200 и data: [].
+      x-roles: [admin, professor, student]
+      parameters:
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/TenItemLimit'
+        - $ref: '#/components/parameters/AssignmentSort'
+      responses:
+        '200':
+          description: Страница доступных заданий.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assignments'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/assignments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Assignments]
+      operationId: get_assignment
+      summary: Получить задание
+      description: |
+        Доступно всем трём ролям. Студент получает только задание своего курса.
+        Чужое задание для студента возвращается как 404.
+      x-roles: [admin, professor, student]
+      responses:
+        '200':
+          description: Задание найдено.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/AssignmentNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags: [Assignments]
+      operationId: update_assignment
+      summary: Частично обновить задание
+      description: Только преподаватель, назначенный на курс задания.
+      x-roles: [professor]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Задание обновлено.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/AssignmentNotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Assignments]
+      operationId: delete_assignment
+      summary: Удалить задание
+      description: Только преподаватель, назначенный на курс задания.
+      x-roles: [professor]
+      responses:
+        '204':
+          description: Задание удалено. Тело ответа отсутствует.
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/AssignmentNotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/submissions:
+    post:
+      tags: [Submissions]
+      operationId: create_submission
+      summary: Отправить решение на проверку
+      description: |
+        Только студент, записанный на курс задания. Автор определяется по
+        текущему пользователю, передать решение от имени другого студента нельзя.
+        Создаёт неизменяемую попытку в статусе SUBMITTED. Проверка асинхронная.
+        Не более 10 попыток на одно задание для одного студента.
+        Одиннадцатая попытка отклоняется с 422 (SUBMISSION_LIMIT_REACHED).
+        Повтор с тем же Idempotency-Key не создаёт попытку повторно.
+        Проверка лимита и создание попытки выполняются атомарно.
+        Несуществующее задание в теле запроса возвращает 422.
+      x-roles: [student]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Решение принято, попытка создана в статусе SUBMITTED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/SubmissionValidationError'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+    get:
+      tags: [Submissions]
+      operationId: list_submissions
+      summary: Получить список решений
+      description: |
+        Студент видит только собственные попытки, преподаватель только попытки
+        по заданиям назначенных ему курсов. Администратору доступ запрещён.
+        Страница содержит не более 10 решений; если осталось меньше,
+        возвращаются все оставшиеся. Пустой список и смещение за концом списка:
+        200 и data: [].
+        Для определённости порядок фиксирован: created_at от новых к старым,
+        при равенстве дат по id.
+      x-roles: [professor, student]
+      parameters:
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/TenItemLimit'
+      responses:
+        '200':
+          description: Страница доступных решений.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submissions'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/submissions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Submissions]
+      operationId: get_submission
+      summary: Получить решение и статус проверки
+      description: |
+        Только автор-студент или преподаватель, назначенный на курс задания.
+        Обновление и удаление попыток через пользовательский API не предусмотрены.
+      x-roles: [professor, student]
+      responses:
+        '200':
+          description: Решение найдено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+        '404':
+          $ref: '#/components/responses/SubmissionNotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/submissions/{id}/review:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [Reviews]
+      operationId: create_review
+      summary: Создать ревью решения
+      description: |
+        Только преподаватель, назначенный на курс задания. Одно ревью на попытку.
+        Содержит финальную оценку и комментарии преподавателя; допускается ручная
+        проверка. Отсутствующая попытка даёт 404, уже существующее ревью даёт 409.
+        Повтор с тем же Idempotency-Key возвращает ранее созданное ревью.
+      x-roles: [professor]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Ревью создано.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/ReviewConflict'
+        '404':
+          $ref: '#/components/responses/SubmissionNotFound'
+    get:
+      tags: [Reviews]
+      operationId: get_review
+      summary: Получить ревью решения
+      description: Только автор-студент или преподаватель, назначенный на курс задания.
+      x-roles: [professor, student]
+      responses:
+        '200':
+          description: Финальная оценка и обратная связь преподавателя.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/ReviewNotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags: [Reviews]
+      operationId: update_review
+      summary: Частично обновить ревью решения
+      description: |
+        Только преподаватель, назначенный на курс задания.
+        Можно изменить финальную оценку и комментарии.
+        Отсутствующая попытка или ревью возвращает 404.
+      x-roles: [professor]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Ревью обновлено.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/ReviewNotFound'
+  /api/v1/submissions/{id}/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [Artifacts]
+      operationId: upload_artifact
+      summary: Загрузить файл ответа на задание
+      description: |
+        Только преподаватель, назначенный на курс задания этой попытки.
+        Артефакт является ответом на задание в виде файла и привязан к сдаче.
+        Загрузка артефакта не изменяет и не удаляет попытку студента.
+        Отсутствующая попытка возвращает 404.
+      x-roles: [professor]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ArtifactUpload'
+      responses:
+        '201':
+          description: Файл загружен, артефакт создан.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '404':
+          $ref: '#/components/responses/SubmissionNotFound'
+    get:
+      tags: [Artifacts]
+      operationId: get_artifacts
+      summary: Получить артефакты решения
+      description: |
+        Только автор-студент или преподаватель, назначенный на курс задания.
+        Возвращает сведения о файлах ответа. Если сдача существует,
+        но файлов нет, возвращается 200 с пустым массивом.
+      x-roles: [professor, student]
+      responses:
+        '200':
+          description: Артефакты решения.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        '404':
+          $ref: '#/components/responses/SubmissionNotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Токен текущего пользователя, выданный внешним сервисом авторизации.
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      description: UUID курса, задания или сдачи в зависимости от пути.
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Обязателен для каждого POST. Непустой ключ уникален для текущего
+        пользователя и операции. Повтор с тем же содержимым возвращает прежний
+        результат; другое содержимое с тем же ключом даёт 409.
+        Отсутствие ключа также даёт 422 (IDEMPOTENCY_KEY_MISSING).
+      schema:
+        type: string
+        minLength: 1
+    Offset:
+      name: offset
+      in: query
+      description: |
+        Смещение от начала списка. Для курсов страницы начинаются с 0, 12, 24;
+        для заданий и решений с 0, 10, 20.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    CourseLimit:
+      name: limit
+      in: query
+      description: Фиксированный размер страницы курсов, 12 элементов.
+      schema:
+        type: integer
+        enum: [12]
+        default: 12
+    TenItemLimit:
+      name: limit
+      in: query
+      description: Фиксированный размер страницы заданий или решений, 10 элементов.
+      schema:
+        type: integer
+        enum: [10]
+        default: 10
+    CourseSort:
+      name: sort
+      in: query
+      description: Курсы от новых к старым. Другие значения дают 422.
+      schema:
+        type: string
+        enum: ['created_at:desc']
+        default: created_at:desc
+    AssignmentSort:
+      name: sort
+      in: query
+      description: Задания от первых созданных к новым. Другие значения дают 422.
+      schema:
+        type: string
+        enum: ['created_at:asc']
+        default: created_at:asc
+  schemas:
+    SubmissionStatus:
+      type: string
+      description: |
+        SUBMITTED: решение принято; PENDING: ожидает проверки;
+        PROCESSING: проверяется; COMPLETED: автоматическая проверка завершена;
+        FAILED: автоматическая проверка завершилась ошибкой.
+        COMPLETED не означает выставление финальной оценки преподавателем.
+      enum: [SUBMITTED, PENDING, PROCESSING, COMPLETED, FAILED]
+    Submission:
+      type: object
+      description: Попытка сдачи решения и текущий статус проверки.
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/SubmissionStatus'
+      additionalProperties: true
+    ArtifactUpload:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: Ответ на задание в виде файла.
+      additionalProperties: false
+    Pagination:
+      type: object
+      required: [offset, limit, total]
+      properties:
+        offset:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          enum: [10, 12]
+        total:
+          type: integer
+          minimum: 0
+          description: Число всех элементов, доступных текущему пользователю.
+      additionalProperties: false
+    Courses:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            additionalProperties: true
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      additionalProperties: false
+    Assignments:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: true
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      additionalProperties: false
+    Submissions:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Submission'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      additionalProperties: false
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, status, path, request_id]
+          properties:
+            code:
+              type: string
+              description: Машиночитаемый код ошибки.
+            message:
+              type: string
+              description: Описание ошибки для пользователя.
+            status:
+              type: integer
+              minimum: 400
+              maximum: 599
+            path:
+              type: string
+              description: Путь исходного запроса.
+            request_id:
+              type: string
+              format: uuid
+          additionalProperties: false
+      additionalProperties: false
+  responses:
+    Unauthorized:
+      description: Пользователь не авторизован; токен отсутствует, недействителен или истёк.
+      headers:
+        WWW-Authenticate:
+          description: Требуется bearer-токен.
+          schema:
+            type: string
+            default: Bearer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            tokenMissing:
+              value:
+                error:
+                  code: TOKEN_MISSING
+                  message: Токен отсутствует
+                  status: 401
+                  path: /api/v1/courses
+                  request_id: 00000000-0000-0000-0000-000000000001
+            tokenInvalid:
+              value:
+                error:
+                  code: TOKEN_INVALID
+                  message: Токен недействителен
+                  status: 401
+                  path: /api/v1/courses
+                  request_id: 00000000-0000-0000-0000-000000000001
+            tokenExpired:
+              value:
+                error:
+                  code: TOKEN_EXPIRED
+                  message: Токен истёк
+                  status: 401
+                  path: /api/v1/courses
+                  request_id: 00000000-0000-0000-0000-000000000001
+    Forbidden:
+      description: Недостаточно прав роли или нет доступа к этому курсу, заданию или решению.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: ACCESS_DENIED
+              message: Недостаточно прав доступа
+              status: 403
+              path: /api/v1/courses
+              request_id: 00000000-0000-0000-0000-000000000001
+    CourseNotFound:
+      description: Курс не существует.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: COURSE_NOT_FOUND
+              message: Курс не существует
+              status: 404
+              path: /api/v1/courses/00000000-0000-0000-0000-000000000002
+              request_id: 00000000-0000-0000-0000-000000000001
+    AssignmentNotFound:
+      description: Задание не существует или недоступно студенту.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: ASSIGNMENT_NOT_FOUND
+              message: Задание не найдено
+              status: 404
+              path: /api/v1/assignments/00000000-0000-0000-0000-000000000002
+              request_id: 00000000-0000-0000-0000-000000000001
+    SubmissionNotFound:
+      description: Решение не существует.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: SUBMISSION_NOT_FOUND
+              message: Решение не существует
+              status: 404
+              path: /api/v1/submissions/00000000-0000-0000-0000-000000000002
+              request_id: 00000000-0000-0000-0000-000000000001
+    ReviewNotFound:
+      description: Решение или его ревью не существует.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: REVIEW_NOT_FOUND
+              message: Ревью не существует
+              status: 404
+              path: /api/v1/submissions/00000000-0000-0000-0000-000000000002/review
+              request_id: 00000000-0000-0000-0000-000000000001
+    ValidationError:
+      description: |
+        Некорректные параметры или тело запроса, включая неверный UUID
+        и отсутствие обязательного Idempotency-Key. Коды: VALIDATION_ERROR,
+        IDEMPOTENCY_KEY_MISSING. Несуществующие курс или задание,
+        указанные в JSON-теле при создании задания или решения, также дают 422
+        с кодом COURSE_NOT_FOUND или ASSIGNMENT_NOT_FOUND.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            invalidData:
+              value:
+                error:
+                  code: VALIDATION_ERROR
+                  message: Некорректные параметры или тело запроса
+                  status: 422
+                  path: /api/v1/courses
+                  request_id: 00000000-0000-0000-0000-000000000001
+            missingKey:
+              value:
+                error:
+                  code: IDEMPOTENCY_KEY_MISSING
+                  message: Заголовок Idempotency-Key обязателен
+                  status: 422
+                  path: /api/v1/courses
+                  request_id: 00000000-0000-0000-0000-000000000001
+    SubmissionValidationError:
+      description: |
+        Некорректные данные, несуществующее задание, отсутствующий
+        Idempotency-Key либо исчерпаны 10 попыток.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            attemptLimit:
+              value:
+                error:
+                  code: SUBMISSION_LIMIT_REACHED
+                  message: Допускается не более 10 попыток на задание
+                  status: 422
+                  path: /api/v1/submissions
+                  request_id: 00000000-0000-0000-0000-000000000001
+    IdempotencyConflict:
+      description: Idempotency-Key уже использован с другим содержимым запроса.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: IDEMPOTENCY_KEY_CONFLICT
+              message: Idempotency-Key уже использован с другим содержимым
+              status: 409
+              path: /api/v1/courses
+              request_id: 00000000-0000-0000-0000-000000000001
+    ReviewConflict:
+      description: Ревью уже создано либо Idempotency-Key использован с другим содержимым.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            reviewAlreadyExists:
+              value:
+                error:
+                  code: REVIEW_ALREADY_EXISTS
+                  message: Ревью уже существует; используйте PATCH для обновления
+                  status: 409
+                  path: /api/v1/submissions/00000000-0000-0000-0000-000000000002/review
+                  request_id: 00000000-0000-0000-0000-000000000001
+            keyConflict:
+              value:
+                error:
+                  code: IDEMPOTENCY_KEY_CONFLICT
+                  message: Idempotency-Key уже использован с другим содержимым
+                  status: 409
+                  path: /api/v1/submissions/00000000-0000-0000-0000-000000000002/review
+                  request_id: 00000000-0000-0000-0000-000000000001
