@@ -1,23 +1,27 @@
 version: 1
-
 disable_existing_loggers: false
-
+filters:
+  request_id:
+    (): src.core.logging.RequestIdFilter
 formatters:
   base:
-    format: "%(asctime)s | %(process)d | %(thread)s | %(levelname)s | %(name)s | %(funcName)s | %(message)s"
+    format: "%(asctime)s | %(levelname)s | %(name)s | %(request_id)s | %(message)s"
     datefmt: "%Y-%m-%d %H:%M:%S"
-
 handlers:
   console:
     class: logging.StreamHandler
     formatter: base
+    filters: [request_id]
     stream: ext://sys.stdout
-
 loggers:
   src:
-    level: DEBUG
-    handlers: [console]
-
+    handlers: []
+    level: NOTSET
+    propagate: true
+  httpx:
+    level: WARNING
+  httpcore:
+    level: WARNING
 root:
   level: INFO
   handlers: [console]
