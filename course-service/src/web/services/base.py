@@ -99,33 +99,36 @@ class BaseService:
         schema: type[T],
         *,
         action: Callable[[Connection], Awaitable[T]],
+        connection: Connection | None = None,
     ) -> tuple[T, bool]:
+        if connection is None:
+            async with self.database.transaction() as connection:
+                return await self.create_once(user, operation, key, payload, schema, action=action, connection=connection)
         fingerprint = hashlib.sha256(
             json.dumps(
                 payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
             ).encode()
         ).hexdigest()
-        async with self.database.transaction() as connection:
-            scope = json.dumps([user.id, operation, key])
-            await IdempotencyRepository.lock(connection, scope)
-            previous = await IdempotencyRepository.get(
-                connection, user.id, operation, key
-            )
-            if previous:
-                if previous["fingerprint"] != fingerprint:
-                    raise ServiceError(
-                        409,
-                        "IDEMPOTENCY_KEY_CONFLICT",
-                        "Idempotency-Key уже использован с другим содержимым",
-                    )
-                return schema.model_validate(previous["response"]), False
-            result = await action(connection)
-            await IdempotencyRepository.save(
-                connection,
-                user.id,
-                operation,
-                key,
-                fingerprint,
-                response=result.model_dump(mode="json"),
-            )
-            return result, True
+        scope = json.dumps([user.id, operation, key])
+        await IdempotencyRepository.lock(connection, scope)
+        previous = await IdempotencyRepository.get(
+            connection, user.id, operation, key
+        )
+        if previous:
+            if previous["fingerprint"] != fingerprint:
+                raise ServiceError(
+                    409,
+                    "IDEMPOTENCY_KEY_CONFLICT",
+                    "Idempotency-Key уже использован с другим содержимым",
+                )
+            return schema.model_validate(previous["response"]), False
+        result = await action(connection)
+        await IdempotencyRepository.save(
+            connection,
+            user.id,
+            operation,
+            key,
+            fingerprint,
+            response=result.model_dump(mode="json"),
+        )
+        return result, True

@@ -2,8 +2,10 @@ from uuid import UUID
 
 from fastapi import BackgroundTasks
 
+from src.application.create_submission import CreateSubmissionUseCase
 from src.core.database import Connection, Database
-from src.core.exceptions import ServiceError, access_denied
+from src.infrastructure.outbox_worker import OutboxWorker
+from src.infrastructure.unit_of_work import UnitOfWork
 from src.web.repository.submissions import SubmissionRepository
 from src.web.schemas.base import Page
 from src.web.schemas.submissions import Submission, SubmissionCreate, SubmissionQuery
@@ -22,41 +24,19 @@ class SubmissionService(BaseService):
     ) -> Submission:
         self.require_role(user, Role.STUDENT)
 
-        async def save(connection: Connection) -> Submission:
-            assignment = await self.assignment(
-                connection, data.assignment_id, lock=True, status=422
-            )
-            course = await self.course(connection, assignment["course_id"])
-            if user.id not in course["student_ids"]:
-                raise access_denied()
-            attempts = await SubmissionRepository.count_attempts(
-                connection, data.assignment_id, user.id
-            )
-            if attempts >= 10:
-                raise ServiceError(
-                    422,
-                    "SUBMISSION_LIMIT_REACHED",
-                    "Допускается не более 10 попыток на задание",
-                )
-            values = {
-                **data.model_dump(),
-                "student_id": user.id,
-                "attempt": attempts + 1,
-            }
-            return Submission.model_validate(
-                await SubmissionRepository.create(connection, values)
-            )
+        async with UnitOfWork(self.database) as uow:
+            use_case = CreateSubmissionUseCase(uow)
 
-        result, created = await self.create_once(
-            user,
-            "create_submission",
-            key,
-            data.model_dump(mode="json"),
-            Submission,
-            action=save,
-        )
+            async def save(connection: Connection) -> Submission:
+                return await use_case.execute(data, user)
+
+            result, created = await self.create_once(
+                user, "create_submission", key, data.model_dump(mode="json"), Submission,
+                action=save, connection=uow.connection,
+            )
         if created and self.checker.settings.url:
-            background.add_task(self.checker.check, result)
+            worker = OutboxWorker(self.database, self.checker)
+            background.add_task(worker.process_once, result.id)
         return result
 
     async def list(self, query: SubmissionQuery, user: User) -> Page[Submission]:
